@@ -69,7 +69,7 @@ zstyle ':vcs_info:git*+set-message:*' hooks git-aheadbehind
 
 _cmd_start=
 _cmd_elapsed=
-_arrow_colour=244
+_arrow_colour=238
 
 preexec() {
   _cmd_start=$EPOCHREALTIME
@@ -78,7 +78,7 @@ preexec() {
 
 precmd() {
   local exit_status=$?
-  (( exit_status == 0 )) && _arrow_colour=244 || _arrow_colour=red
+  (( exit_status == 0 )) && _arrow_colour=238 || _arrow_colour=red
 
   _cmd_elapsed=''
   if [[ -n $_cmd_start ]]; then
