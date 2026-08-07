@@ -44,23 +44,62 @@ setopt pushd_silent
 alias d='dirs -v'           # numbered recent dirs; `cd -2` to jump back
 
 # ---------------------------------------------------------------------------
-# Prompt: teal user@host, yellow dir, red git branch, white command text
+# Prompt: two-line, git ahead/behind, exit status, command duration
 # ---------------------------------------------------------------------------
+zmodload zsh/datetime
 autoload -Uz vcs_info
-precmd_vcs_info() { vcs_info }
-precmd_functions+=( precmd_vcs_info )
 setopt prompt_subst
 
+zstyle ':vcs_info:*' enable git
 zstyle ':vcs_info:git:*' check-for-changes true
 zstyle ':vcs_info:git:*' unstagedstr '*'
 zstyle ':vcs_info:git:*' stagedstr '+'
-zstyle ':vcs_info:git:*' formats       ' %F{red}(%b%u%c)%f'
-zstyle ':vcs_info:git:*' actionformats ' %F{red}(%b|%a%u%c)%f'
+zstyle ':vcs_info:git:*' formats       '%b%u%c%m'
+zstyle ':vcs_info:git:*' actionformats '%b|%a%u%c%m'
+zstyle ':vcs_info:git*+set-message:*' hooks git-aheadbehind
 
-PROMPT='%F{37}%n@%m%f %F{yellow}%~%f${vcs_info_msg_0_}%F{yellow} %#%f %F{white}'
+# Append ↑n / ↓n for commits ahead of / behind the upstream branch
++vi-git-aheadbehind() {
+  local ahead behind
+  ahead=$(command git rev-list --count @{upstream}..HEAD 2>/dev/null)
+  behind=$(command git rev-list --count HEAD..@{upstream} 2>/dev/null)
+  (( ahead ))  && hook_com[misc]+="↑${ahead}"
+  (( behind )) && hook_com[misc]+="↓${behind}"
+}
 
-# Reset colour after the command line so output isn't white
-preexec() { print -Pn '%f' }
+_cmd_start=
+_cmd_elapsed=
+_arrow_colour=244
+
+preexec() {
+  _cmd_start=$EPOCHREALTIME
+  print -Pn '%f'            # reset colour so command output isn't tinted
+}
+
+precmd() {
+  local exit_status=$?
+  (( exit_status == 0 )) && _arrow_colour=244 || _arrow_colour=red
+
+  _cmd_elapsed=''
+  if [[ -n $_cmd_start ]]; then
+    local -F seconds=$(( EPOCHREALTIME - _cmd_start ))
+    (( seconds > 2 )) && _cmd_elapsed=$(printf '%.1fs' $seconds)
+    _cmd_start=
+  fi
+
+  vcs_info
+
+  if [[ -n $vcs_info_msg_0_ ]]; then
+    _git_segment="─[%F{red}${vcs_info_msg_0_}%F{244}]"
+  else
+    _git_segment=''
+  fi
+}
+
+PROMPT='%F{244}┌─[%F{37}%n@%m%F{244}]─[%F{yellow}%~%F{244}]${_git_segment}
+%F{244}└──%F{${_arrow_colour}}▶%f %F{white}'
+
+RPROMPT='%F{240}${_cmd_elapsed:+${_cmd_elapsed}  }%D{%H:%M:%S}%f'
 
 # ---------------------------------------------------------------------------
 # direnv (per-project .envrc)
@@ -82,9 +121,56 @@ alias rubo='bundle exec rubocop -a --force-exclusion'
 # fzf: Ctrl-R history search, Ctrl-T file picker, Alt-C cd
 if command -v fzf >/dev/null; then
   eval "$(fzf --zsh)"
-  export FZF_DEFAULT_OPTS='--height=40% --layout=reverse --border --info=inline'
-  command -v rg >/dev/null && export FZF_DEFAULT_COMMAND='rg --files --hidden --glob "!.git"'
+  export FZF_DEFAULT_OPTS='--height=40% --layout=reverse --border --info=inline --marker=+'
+
+  if command -v fd >/dev/null; then
+    export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'
+    export FZF_ALT_C_COMMAND='fd --type d --hidden --exclude .git'
+  elif command -v rg >/dev/null; then
+    export FZF_DEFAULT_COMMAND='rg --files --hidden --glob "!.git"'
+  fi
+  export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+
+  # Ctrl-T: preview the file under the cursor
+  if command -v bat >/dev/null; then
+    export FZF_CTRL_T_OPTS='--preview "bat --style=numbers --color=always --line-range=:200 {}" --preview-window=right:60%:wrap'
+  fi
+
+  # Alt-C: preview the directory tree under the cursor
+  if command -v eza >/dev/null; then
+    export FZF_ALT_C_OPTS='--preview "eza --tree --level=2 --colour=always --group-directories-first {}" --preview-window=right:50%'
+  fi
+
+  # Ctrl-R: wrap long commands in a preview pane instead of truncating them
+  export FZF_CTRL_R_OPTS='--preview "echo {}" --preview-window=down:3:wrap --bind "ctrl-y:execute-silent(echo -n {2..} | pbcopy)+abort"'
 fi
+
+# Fuzzy-find a file and open it in $EDITOR
+fe() {
+  local file
+  file=$(fzf --query="$1" --select-1 --exit-0) && [[ -n $file ]] && ${EDITOR:-vim} "$file"
+}
+
+# Fuzzy-search file *contents* with ripgrep, open the match in $EDITOR
+if command -v rg >/dev/null; then
+  rgf() {
+    local match file line
+    match=$(rg --line-number --no-heading --color=always --smart-case "${1:-}" |
+      fzf --ansi --delimiter=: --preview 'bat --style=numbers --color=always --highlight-line {2} {1}' \
+          --preview-window='right:60%:wrap:+{2}-/2') || return
+    file=${match%%:*}
+    line=${${match#*:}%%:*}
+    [[ -n $file ]] && ${EDITOR:-vim} "+${line}" "$file"
+  }
+fi
+
+# Fuzzy-checkout a git branch
+fbr() {
+  local branch
+  branch=$(git branch --all --sort=-committerdate --format='%(refname:short)' 2>/dev/null |
+    grep -v '^origin/HEAD' | fzf --preview 'git log --oneline --color=always -20 {}') || return
+  [[ -n $branch ]] && git checkout "${branch#origin/}"
+}
 
 command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
 
