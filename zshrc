@@ -70,6 +70,7 @@ zstyle ':vcs_info:git*+set-message:*' hooks git-aheadbehind
 _cmd_start=
 _cmd_elapsed=
 _arrow_colour=241
+_exit_segment=
 
 preexec() {
   _cmd_start=$EPOCHREALTIME
@@ -78,7 +79,13 @@ preexec() {
 
 precmd() {
   local exit_status=$?
-  (( exit_status == 0 )) && _arrow_colour=241 || _arrow_colour=red
+  if (( exit_status == 0 )); then
+    _arrow_colour=241
+    _exit_segment=''
+  else
+    _arrow_colour=red
+    _exit_segment="─[%F{red}✘ ${exit_status}%F{244}]─"
+  fi
 
   _cmd_elapsed=''
   if [[ -n $_cmd_start ]]; then
@@ -97,7 +104,7 @@ precmd() {
 }
 
 PROMPT='%F{244}┌─[%F{37}%n@%m%F{244}]─[%F{yellow}%~%F{244}]${_git_segment}
-%F{244}└──%F{${_arrow_colour}}▶%f %F{white}'
+%F{244}└─${_exit_segment}─%F{${_arrow_colour}}▶%f %F{white}'
 
 RPROMPT='%F{240}${_cmd_elapsed:+${_cmd_elapsed}  }%D{%H:%M:%S}%f'
 
