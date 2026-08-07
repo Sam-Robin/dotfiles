@@ -37,7 +37,7 @@ zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#)*=0=01;31'
 # ---------------------------------------------------------------------------
 # Navigation
 # ---------------------------------------------------------------------------
-setopt auto_cd              # `florence` instead of `cd florence`
+setopt auto_cd              # type a directory name to cd into it
 setopt auto_pushd           # every cd pushes onto the dir stack
 setopt pushd_ignore_dups
 setopt pushd_silent
@@ -63,7 +63,7 @@ PROMPT='%F{37}%n@%m%f %F{yellow}%~%f${vcs_info_msg_0_}%F{yellow} %#%f %F{white}'
 preexec() { print -Pn '%f' }
 
 # ---------------------------------------------------------------------------
-# direnv (loads florence/.envrc → .env.neon)
+# direnv (per-project .envrc)
 # ---------------------------------------------------------------------------
 command -v direnv >/dev/null && eval "$(direnv hook zsh)"
 
@@ -71,13 +71,10 @@ command -v direnv >/dev/null && eval "$(direnv hook zsh)"
 # Aliases
 # ---------------------------------------------------------------------------
 alias be='bundle exec'
-alias fl='./bin/florence'
 alias rs='rails s'
 alias rc='rails c'
 alias rspecf='bundle exec rspec'
 alias rubo='bundle exec rubocop -a --force-exclusion'
-alias tscheck='yarn typescript:check'
-alias lintjs='yarn lint:js'
 
 # ---------------------------------------------------------------------------
 # Optional tools — activate automatically once brew-installed
@@ -117,3 +114,8 @@ _accept_suggestion_or_complete() {
 }
 zle -N _accept_suggestion_or_complete
 bindkey '^I' _accept_suggestion_or_complete
+
+# ---------------------------------------------------------------------------
+# Machine-local config (work aliases, secrets) — not tracked in this repo
+# ---------------------------------------------------------------------------
+[[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"

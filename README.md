@@ -15,6 +15,11 @@ ln -s ~/dotfiles/zshrc ~/.zshrc
 
 Then open a new shell.
 
+## Machine-local config
+
+Anything work-specific or sensitive goes in `~/.zshrc.local`, which is sourced last
+and deliberately not tracked here — so it can override anything in `zshrc`.
+
 ## Dependencies
 
 Installed via Homebrew:
