@@ -105,9 +105,6 @@ if [[ -n "$HOMEBREW_PREFIX" ]]; then
   _zsh_plugin "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 fi
 
-# asdf shims
-export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
-
 export BROWSER="open -a Firefox"
 
 # Tab accepts an autosuggestion when one is showing, otherwise completes as normal
