@@ -70,6 +70,8 @@ zstyle ':vcs_info:git*+set-message:*' hooks git-aheadbehind
 _cmd_start=
 _cmd_elapsed=
 _arrow_colour=241
+_git_clean_colour=71
+_git_dirty_colour=red
 
 preexec() {
   _cmd_start=$EPOCHREALTIME
@@ -90,7 +92,11 @@ precmd() {
   vcs_info
 
   if [[ -n $vcs_info_msg_0_ ]]; then
-    _git_segment="─[%F{red}${vcs_info_msg_0_}%F{244}]"
+    local branch_colour=$_git_clean_colour
+    if [[ -n $(command git status --porcelain 2>/dev/null) ]]; then
+      branch_colour=$_git_dirty_colour
+    fi
+    _git_segment="─[%F{${branch_colour}}${vcs_info_msg_0_}%F{244}]"
   else
     _git_segment=''
   fi
