@@ -5,8 +5,9 @@ Personal shell configuration.
 ## Contents
 
 - `zshrc` — zsh config: asdf shims, direnv hook, prompt (`vcs_info` git status), aliases, plugins
-- `bashrc` — the same setup for bash: identical prompt, aliases and fzf helpers
-- `bash_profile` — sources `bashrc`, because macOS starts login shells
+- `bashrc` — the same setup for bash: identical prompt, aliases and fzf helpers.
+  Runs on macOS and Debian
+- `bash_profile` — sources `bashrc`, because login shells don't read it themselves
 
 ## Install
 
@@ -26,16 +27,43 @@ is sourced last and deliberately not tracked here — so it can override anythin
 
 ## Dependencies
 
-Installed via Homebrew:
+Every tool below is optional — `bashrc` detects what's installed and quietly skips the
+rest, so it works on a bare Debian box with nothing but `git`.
+
+macOS, via Homebrew:
 
 ```sh
 brew install asdf direnv eza zsh-autosuggestions zsh-syntax-highlighting
 brew install bash bash-completion@2 blesh   # bash only
 ```
 
-Installing `bash` itself matters: macOS ships bash 3.2, which has no `EPOCHREALTIME` (the
-prompt falls back to whole-second timings). `blesh` is bash's stand-in for
-zsh-autosuggestions and zsh-syntax-highlighting. Everything degrades quietly if absent.
+Installing `bash` itself matters on macOS: the system one is 3.2, which has no
+`EPOCHREALTIME`, so the prompt falls back to whole-second timings. `blesh` is bash's
+stand-in for zsh-autosuggestions and zsh-syntax-highlighting.
+
+Debian, via apt:
+
+```sh
+sudo apt install git bash-completion fzf ripgrep bat fd-find direnv tree
+sudo apt install eza zoxide   # trixie and later only
+```
+
+No need to symlink `batcat` → `bat` or `fdfind` → `fd`: `bashrc` looks for both names.
+
+## Debian servers
+
+`bashrc` returns before it prints anything unless the shell is interactive, which is what
+keeps `scp` and `rsync` working — never add output above that guard.
+
+Other things it adapts on Debian:
+
+| | |
+| --- | --- |
+| `bat` / `fd` | resolved as `batcat` / `fdfind` |
+| fzf < 0.48 | no `fzf --bash`, so the key bindings are sourced from `/usr/share/doc/fzf/examples` |
+| `eza` absent | falls back to GNU `ls --color=auto --group-directories-first` |
+| Clipboard | `pbcopy`, else `wl-copy`/`xclip`/`xsel`; Ctrl-Y in Ctrl-R is dropped if headless |
+| `$BROWSER` | left unset when there's no display, which is what CLI tools expect |
 
 ## Differences from `zshrc`
 

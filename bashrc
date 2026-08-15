@@ -1,5 +1,6 @@
 # ---------------------------------------------------------------------------
 # Interactive shells only
+# Must stay at the top: scp and rsync break if a non-interactive shell prints.
 # ---------------------------------------------------------------------------
 case $- in
   *i*) ;;
@@ -7,24 +8,52 @@ case $- in
 esac
 
 # ---------------------------------------------------------------------------
-# ble.sh — autosuggestions + syntax highlighting (must load before anything else)
+# Platform
+# This file runs on both macOS (Homebrew) and Debian, which name several of the
+# same tools differently, so resolve everything through these two helpers.
 # ---------------------------------------------------------------------------
-_blesh="${HOMEBREW_PREFIX:-/opt/homebrew}/share/blesh/ble.sh"
-[[ -f $_blesh ]] && source "$_blesh" --noattach
+_os=$(uname -s)
+
+_have() { command -v "$1" >/dev/null 2>&1; }
+
+# Echo the first of several command names that exists
+_first_cmd() {
+  local c
+  for c in "$@"; do
+    if _have "$c"; then printf '%s' "$c"; return 0; fi
+  done
+  return 1
+}
+
+# zsh gets HOMEBREW_PREFIX from /etc/zprofile; bash may not. Unset on Debian.
+if [[ -z ${HOMEBREW_PREFIX:-} ]]; then
+  for _brew in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
+    [[ -x $_brew ]] && { eval "$("$_brew" shellenv)"; break; }
+  done
+  unset _brew
+fi
+
+_bat=$(_first_cmd bat batcat)     # Debian packages bat as batcat
+_fd=$(_first_cmd fd fdfind)       # ...and fd as fdfind
 
 # ---------------------------------------------------------------------------
-# Homebrew
-# zsh gets HOMEBREW_PREFIX from /etc/zprofile; bash may not, so set it here.
+# ble.sh — autosuggestions + syntax highlighting (must load before key bindings)
 # ---------------------------------------------------------------------------
-if [[ -z ${HOMEBREW_PREFIX:-} && -x /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-fi
+for _blesh in \
+  "${HOMEBREW_PREFIX:-}/share/blesh/ble.sh" \
+  "$HOME/.local/share/blesh/ble.sh" \
+  /usr/share/blesh/ble.sh
+do
+  [[ -f $_blesh ]] && { source "$_blesh" --noattach; break; }
+done
+unset _blesh
 
 # ---------------------------------------------------------------------------
 # PATH
 # ---------------------------------------------------------------------------
-# bash has no `typeset -U path`, so dedupe by hand when prepending
+# bash has no `typeset -U path`, so check before prepending
 _path_prepend() {
+  [[ -d $1 ]] || return
   case ":$PATH:" in
     *":$1:"*) ;;
     *) PATH="$1:$PATH" ;;
@@ -59,14 +88,14 @@ _history_sync() { history -a; history -c; history -r; }
 # ---------------------------------------------------------------------------
 # Completion
 # ---------------------------------------------------------------------------
-if [[ -r "${HOMEBREW_PREFIX:-}/etc/profile.d/bash_completion.sh" ]]; then
-  source "$HOMEBREW_PREFIX/etc/profile.d/bash_completion.sh"
-elif [[ -d "${HOMEBREW_PREFIX:-}/etc/bash_completion.d" ]]; then
-  for _c in "$HOMEBREW_PREFIX"/etc/bash_completion.d/*; do
-    [[ -r $_c ]] && source "$_c"
-  done
-  unset _c
-fi
+for _bc in \
+  "${HOMEBREW_PREFIX:-}/etc/profile.d/bash_completion.sh" \
+  /usr/share/bash-completion/bash_completion \
+  /etc/bash_completion
+do
+  [[ -r $_bc ]] && { source "$_bc"; break; }
+done
+unset _bc
 
 bind 'set completion-ignore-case on'      # case-insensitive
 bind 'set completion-map-case on'         # treat - and _ as equivalent
@@ -81,11 +110,13 @@ bind '"\e[Z": menu-complete-backward'
 
 # ---------------------------------------------------------------------------
 # Navigation
+# 2>/dev/null because autocd/dirspell/globstar need bash 4+, and macOS ships 3.2
 # ---------------------------------------------------------------------------
-shopt -s autocd          # type a directory name to cd into it
-shopt -s cdspell dirspell
-shopt -s checkwinsize    # keep $COLUMNS accurate (the right-hand prompt needs it)
-shopt -s globstar
+shopt -s autocd 2>/dev/null          # type a directory name to cd into it
+shopt -s cdspell
+shopt -s dirspell 2>/dev/null
+shopt -s globstar 2>/dev/null
+shopt -s checkwinsize                # keep $COLUMNS accurate — the right-hand prompt needs it
 
 # bash has no auto_pushd — push on every cd, ignoring repeats (pushd_ignore_dups)
 cd() {
@@ -111,6 +142,7 @@ _git_dirty_colour=196
 _cmd_start=
 _cmd_elapsed=
 
+# EPOCHREALTIME is bash 5+; on older bash fall back to whole seconds
 _timer_now() {
   if [[ -n ${EPOCHREALTIME:-} ]]; then
     printf '%s' "$EPOCHREALTIME"
@@ -214,7 +246,7 @@ PS2='   \[\033[38;5;244m\]…\[\033[0m\] '
 # ---------------------------------------------------------------------------
 # direnv (per-project .envrc)
 # ---------------------------------------------------------------------------
-command -v direnv >/dev/null && eval "$(direnv hook bash)"
+_have direnv && eval "$(direnv hook bash)"
 
 # ---------------------------------------------------------------------------
 # Aliases
@@ -226,33 +258,65 @@ alias rspecf='bundle exec rspec'
 alias rubo='bundle exec rubocop -a --force-exclusion'
 
 # ---------------------------------------------------------------------------
-# Optional tools — activate automatically once brew-installed
+# Optional tools — activate automatically once installed
 # ---------------------------------------------------------------------------
 # fzf: Ctrl-R history search, Ctrl-T file picker, Alt-C cd
-if command -v fzf >/dev/null; then
-  eval "$(fzf --bash)"
+if _have fzf; then
+  if fzf --bash >/dev/null 2>&1; then
+    eval "$(fzf --bash)"
+  else
+    # fzf < 0.48, e.g. Debian's package, ships the bindings as files instead
+    for _f in \
+      /usr/share/doc/fzf/examples/key-bindings.bash \
+      /usr/share/fzf/key-bindings.bash \
+      "${HOMEBREW_PREFIX:-}/opt/fzf/shell/key-bindings.bash"
+    do
+      [[ -r $_f ]] && { source "$_f"; break; }
+    done
+    for _f in \
+      /usr/share/doc/fzf/examples/completion.bash \
+      /usr/share/fzf/completion.bash \
+      "${HOMEBREW_PREFIX:-}/opt/fzf/shell/completion.bash"
+    do
+      [[ -r $_f ]] && { source "$_f"; break; }
+    done
+    unset _f
+  fi
+
   export FZF_DEFAULT_OPTS='--height=40% --layout=reverse --border --info=inline --marker=+'
 
-  if command -v fd >/dev/null; then
-    export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'
-    export FZF_ALT_C_COMMAND='fd --type d --hidden --exclude .git'
-  elif command -v rg >/dev/null; then
+  if [[ -n $_fd ]]; then
+    export FZF_DEFAULT_COMMAND="$_fd --type f --hidden --exclude .git"
+    export FZF_ALT_C_COMMAND="$_fd --type d --hidden --exclude .git"
+  elif _have rg; then
     export FZF_DEFAULT_COMMAND='rg --files --hidden --glob "!.git"'
   fi
   export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
   # Ctrl-T: preview the file under the cursor
-  if command -v bat >/dev/null; then
-    export FZF_CTRL_T_OPTS='--preview "bat --style=numbers --color=always --line-range=:200 {}" --preview-window=right:60%:wrap'
+  if [[ -n $_bat ]]; then
+    export FZF_CTRL_T_OPTS="--preview \"$_bat --style=numbers --color=always --line-range=:200 {}\" --preview-window=right:60%:wrap"
   fi
 
   # Alt-C: preview the directory tree under the cursor
-  if command -v eza >/dev/null; then
+  if _have eza; then
     export FZF_ALT_C_OPTS='--preview "eza --tree --level=2 --colour=always --group-directories-first {}" --preview-window=right:50%'
+  elif _have tree; then
+    export FZF_ALT_C_OPTS='--preview "tree -C -L 2 {}" --preview-window=right:50%'
   fi
 
-  # Ctrl-R: wrap long commands in a preview pane instead of truncating them
-  export FZF_CTRL_R_OPTS='--preview "echo {}" --preview-window=down:3:wrap --bind "ctrl-y:execute-silent(echo -n {2..} | pbcopy)+abort"'
+  # Ctrl-R: wrap long commands in a preview pane instead of truncating them,
+  # and Ctrl-Y copies one — if this box has a clipboard to copy to
+  FZF_CTRL_R_OPTS='--preview "echo {}" --preview-window=down:3:wrap'
+  _clip=$(_first_cmd pbcopy wl-copy xclip xsel)
+  case $_clip in
+    xclip) _clip='xclip -selection clipboard' ;;
+    xsel)  _clip='xsel --clipboard --input' ;;
+  esac
+  [[ -n $_clip ]] &&
+    FZF_CTRL_R_OPTS+=" --bind \"ctrl-y:execute-silent(echo -n {2..} | $_clip)+abort\""
+  export FZF_CTRL_R_OPTS
+  unset _clip
 fi
 
 # Fuzzy-find a file and open it in $EDITOR
@@ -262,11 +326,12 @@ fe() {
 }
 
 # Fuzzy-search file *contents* with ripgrep, open the match in $EDITOR
-if command -v rg >/dev/null; then
+if _have rg; then
   rgf() {
-    local match file line rest
+    local match file line rest preview='cat {1}'
+    [[ -n $_bat ]] && preview="$_bat --style=numbers --color=always --highlight-line {2} {1}"
     match=$(rg --line-number --no-heading --color=always --smart-case "${1:-}" |
-      fzf --ansi --delimiter=: --preview 'bat --style=numbers --color=always --highlight-line {2} {1}' \
+      fzf --ansi --delimiter=: --preview "$preview" \
           --preview-window='right:60%:wrap:+{2}-/2') || return
     file=${match%%:*}
     rest=${match#*:}
@@ -283,16 +348,28 @@ fbr() {
   [[ -n $branch ]] && git checkout "${branch#origin/}"
 }
 
-command -v zoxide >/dev/null && eval "$(zoxide init bash)"
+_have zoxide && eval "$(zoxide init bash)"
 
-if command -v eza >/dev/null; then
+if _have eza; then
   alias ls='eza --group-directories-first'
   alias ll='eza -l --git --group-directories-first'
   alias la='eza -la --git --group-directories-first'
   alias lt='eza --tree --level=2 --group-directories-first'
+elif [[ $_os == Linux ]]; then
+  # GNU coreutils ls, which BSD/macOS ls doesn't understand
+  _have dircolors && eval "$(dircolors -b)"
+  alias ls='ls --color=auto --group-directories-first'
+  alias ll='ls -lh --color=auto --group-directories-first'
+  alias la='ls -lah --color=auto --group-directories-first'
+  alias grep='grep --color=auto'
 fi
 
-export BROWSER="open -a Firefox"
+# Headless servers get no BROWSER at all, which is what most tools expect
+if _have open; then
+  export BROWSER="open -a Firefox"
+elif [[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]] && _have xdg-open; then
+  export BROWSER='xdg-open'
+fi
 
 # ---------------------------------------------------------------------------
 # Machine-local config (work aliases, secrets) — not tracked in this repo
@@ -301,3 +378,5 @@ export BROWSER="open -a Firefox"
 
 # ble.sh takes over the line editor last, once every binding is in place
 [[ -n ${BLE_VERSION:-} ]] && ble-attach
+
+_dotfiles_bashrc_loaded=1
