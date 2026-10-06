@@ -12,7 +12,11 @@ Personal shell configuration.
 - `ghostty/config` — Ghostty terminal: JetBrainsMono Nerd Font, Option as Alt
 - `bin/wt` — one git worktree + tmux session per branch, with nvim and Claude open.
   `wt <branch>` creates or attaches, `wt rm <branch>` tears down, `wt ls` lists.
-  Works from bash or zsh; it is a plain script on `~/.local/bin`
+  Each session gets a web port and a Redis database derived from its name, exported
+  as `FLEX_PORT` and `REDIS_URL`, and a Caddy site so the server answers at
+  `http://<session>.localhost`. Works from bash or zsh; it is a plain script on `~/.local/bin`
+- `caddy/Caddyfile` — reverse proxy on port 80 for `*.localhost`; `florence.localhost` is
+  the main checkout on 3000, `caddy/sites/` holds the per-worktree files `wt` writes
 
 ## Install
 
@@ -25,7 +29,12 @@ ln -s ~/dotfiles/tmux.conf ~/.tmux.conf
 mkdir -p ~/.config/ghostty ~/.local/bin
 ln -s ~/dotfiles/ghostty/config ~/.config/ghostty/config
 ln -s ~/dotfiles/bin/wt ~/.local/bin/wt
+ln -s ~/dotfiles/caddy ~/.config/caddy
+ln -sf ~/dotfiles/caddy/Caddyfile /opt/homebrew/etc/Caddyfile && brew services start caddy
 ```
+
+Worktree sessions start with an empty Redis database, so rollout flags are off there until
+you run `rails rollout:sync` inside the session. The Neon database is still shared.
 
 Then open a new shell.
 
@@ -43,7 +52,7 @@ macOS, via Homebrew:
 
 ```sh
 brew install asdf direnv eza zsh-autosuggestions zsh-syntax-highlighting
-brew install tmux && brew install --cask ghostty font-jetbrains-mono-nerd-font
+brew install tmux caddy && brew install --cask ghostty font-jetbrains-mono-nerd-font
 brew install bash bash-completion@2 blesh   # bash only
 ```
 

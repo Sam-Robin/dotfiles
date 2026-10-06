@@ -1,0 +1,10 @@
+# Name-based access to local Rails servers: <worktree>.localhost -> 127.0.0.1:<port>.
+# Browsers resolve *.localhost to this machine on their own, so no DNS or
+# hosts-file changes. Plain http so the app's `localhost` cookie domain works.
+# Per-worktree files are written by `wt` into sites/ and removed by `wt rm`.
+
+http://florence.localhost {
+	reverse_proxy 127.0.0.1:3000
+}
+
+import sites/*.caddy

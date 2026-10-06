@@ -9,9 +9,19 @@
 # Files that exist in the main checkout but are gitignored (.env, .env.neon,
 # .claude/settings.local.json) are symlinked in; node_modules is APFS-cloned
 # so a new worktree costs seconds, not a yarn install.
+#
+# Each session gets its own web port and Redis database, both derived from
+# the session name so they are stable with no state on disk, and a Caddy
+# site so the server answers at http://<session>.localhost.
 set -euo pipefail
 
 LINK_FILES=(.env .env.neon .claude/settings.local.json)
+CADDY_SITES="$HOME/.config/caddy/sites"
+CADDYFILE="$HOME/.config/caddy/Caddyfile"
+PORT_BASE=3001
+PORT_RANGE=998        # 3001..3998
+REDIS_DB_BASE=2       # 0 is the main checkout, 1 is Action Cable's default
+REDIS_DB_RANGE=14     # 2..15
 
 die() { printf 'wt: %s\n' "$*" >&2; exit 1; }
 
@@ -22,6 +32,9 @@ main_repo() {
 }
 
 session_name() { printf '%s' "${1##*/}" | tr '.:/' '---'; }
+name_hash() { printf '%s' "$1" | cksum | cut -d' ' -f1; }
+port_for() { echo $(( PORT_BASE + $(name_hash "$1") % PORT_RANGE )); }
+redis_db_for() { echo $(( REDIS_DB_BASE + $(name_hash "$1") % REDIS_DB_RANGE )); }
 worktree_dir() { printf '%s.worktrees/%s' "$1" "$(printf '%s' "$2" | tr '/' '-')"; }
 
 attach() {
@@ -70,16 +83,38 @@ setup_env() {
   fi
 }
 
+caddy_reload() {
+  command -v caddy >/dev/null || return 0
+  caddy reload --config "$CADDYFILE" >/dev/null 2>&1 || true
+}
+
+add_site() {
+  local session=$1 port=$2
+  [[ -d $CADDY_SITES ]] || return 0
+  printf 'http://%s.localhost {\n  reverse_proxy 127.0.0.1:%s\n}\n' "$session" "$port" > "$CADDY_SITES/$session.caddy"
+  caddy_reload
+}
+
+remove_site() {
+  rm -f "$CADDY_SITES/$1.caddy"
+  caddy_reload
+}
+
 cmd_open() {
-  local branch=$1 repo dir session
+  local branch=$1 repo dir session port db
   repo=$(main_repo)
   dir=$(worktree_dir "$repo" "$branch")
   session=$(session_name "$branch")
+  port=$(port_for "$session")
+  db=$(redis_db_for "$session")
   create_worktree "$repo" "$branch" "$dir"
   setup_env "$repo" "$dir"
+  add_site "$session" "$port"
   if ! tmux has-session -t "=$session" 2>/dev/null; then
-    tmux new-session -d -s "$session" -c "$dir"
+    tmux new-session -d -s "$session" -c "$dir" \
+      -e "FLEX_PORT=$port" -e "REDIS_URL=redis://localhost:6379/$db"
     tmux send-keys -t "$session" 'nvim +ClaudeCode' Enter
+    echo "http://$session.localhost -> port $port, redis db $db"
   fi
   attach "$session"
 }
@@ -90,6 +125,7 @@ cmd_rm() {
   dir=$(worktree_dir "$repo" "$branch")
   session=$(session_name "$branch")
   tmux kill-session -t "=$session" 2>/dev/null || true
+  remove_site "$session"
   [[ -d $dir ]] && git -C "$repo" worktree remove "$dir"
   git -C "$repo" worktree prune
   echo "removed worktree; branch '$branch' kept"
@@ -98,7 +134,10 @@ cmd_rm() {
 cmd_ls() {
   git -C "$(main_repo)" worktree list
   echo
-  tmux list-sessions 2>/dev/null || echo "no tmux sessions"
+  local s
+  for s in $(tmux list-sessions -F '#S' 2>/dev/null); do
+    printf '%-40s http://%s.localhost  (port %s, redis db %s)\n' "$s" "$s" "$(port_for "$s")" "$(redis_db_for "$s")"
+  done
 }
 
 case "${1:-}" in
