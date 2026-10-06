@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# wt — one git worktree + one tmux session per branch, with nvim and Claude open.
+#
+#   wt <branch>        create (or reuse) the worktree and session, then attach
+#   wt rm <branch>     kill the session and remove the worktree (branch is kept)
+#   wt ls              list worktrees and sessions
+#
+# Worktrees live next to the main checkout in <repo>.worktrees/<branch>.
+# Files that exist in the main checkout but are gitignored (.env, .env.neon,
+# .claude/settings.local.json) are symlinked in; node_modules is APFS-cloned
+# so a new worktree costs seconds, not a yarn install.
+set -euo pipefail
+
+LINK_FILES=(.env .env.neon .claude/settings.local.json)
+
+die() { printf 'wt: %s\n' "$*" >&2; exit 1; }
+
+main_repo() {
+  local common
+  common=$(git rev-parse --git-common-dir 2>/dev/null) || die "not inside a git repository"
+  (cd "$(dirname "$common")" && pwd)
+}
+
+session_name() { printf '%s' "${1##*/}" | tr '.:/' '---'; }
+worktree_dir() { printf '%s.worktrees/%s' "$1" "$(printf '%s' "$2" | tr '/' '-')"; }
+
+attach() {
+  if [[ -n "${TMUX:-}" ]]; then
+    tmux switch-client -t "$1"
+  elif [[ -t 0 ]]; then
+    tmux attach-session -t "$1"
+  else
+    echo "session '$1' ready: tmux attach -t $1"
+  fi
+}
+
+create_worktree() {
+  local repo=$1 branch=$2 dir=$3
+  [[ -d $dir ]] && return 0
+  mkdir -p "$(dirname "$dir")"
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$repo" worktree add "$dir" "$branch"
+  elif git -C "$repo" fetch -q origin "$branch" 2>/dev/null; then
+    git -C "$repo" worktree add --track -b "$branch" "$dir" "origin/$branch"
+  else
+    git -C "$repo" fetch -q origin main
+    git -C "$repo" worktree add -b "$branch" "$dir" origin/main
+  fi
+}
+
+setup_env() {
+  local repo=$1 dir=$2 f
+  for f in "${LINK_FILES[@]}"; do
+    [[ -e $repo/$f && ! -e $dir/$f ]] || continue
+    mkdir -p "$dir/$(dirname "$f")"
+    ln -s "$repo/$f" "$dir/$f"
+  done
+  if [[ -d $repo/node_modules && ! -d $dir/node_modules ]]; then
+    if [[ $(uname) == Darwin ]]; then cp -cR "$repo/node_modules" "$dir/node_modules"
+    else cp -R --reflink=auto "$repo/node_modules" "$dir/node_modules"; fi
+  fi
+  if [[ -f $dir/yarn.lock ]] && ! cmp -s "$repo/yarn.lock" "$dir/yarn.lock"; then
+    (cd "$dir" && yarn install --frozen-lockfile)
+  fi
+  if [[ -f $dir/Gemfile.lock ]] && ! cmp -s "$repo/Gemfile.lock" "$dir/Gemfile.lock"; then
+    (cd "$dir" && bundle install)
+  fi
+  if [[ -f $dir/.envrc ]] && command -v direnv >/dev/null; then
+    (cd "$dir" && direnv allow)
+  fi
+}
+
+cmd_open() {
+  local branch=$1 repo dir session
+  repo=$(main_repo)
+  dir=$(worktree_dir "$repo" "$branch")
+  session=$(session_name "$branch")
+  create_worktree "$repo" "$branch" "$dir"
+  setup_env "$repo" "$dir"
+  if ! tmux has-session -t "=$session" 2>/dev/null; then
+    tmux new-session -d -s "$session" -c "$dir"
+    tmux send-keys -t "$session" 'nvim +ClaudeCode' Enter
+  fi
+  attach "$session"
+}
+
+cmd_rm() {
+  local branch=$1 repo dir session
+  repo=$(main_repo)
+  dir=$(worktree_dir "$repo" "$branch")
+  session=$(session_name "$branch")
+  tmux kill-session -t "=$session" 2>/dev/null || true
+  [[ -d $dir ]] && git -C "$repo" worktree remove "$dir"
+  git -C "$repo" worktree prune
+  echo "removed worktree; branch '$branch' kept"
+}
+
+cmd_ls() {
+  git -C "$(main_repo)" worktree list
+  echo
+  tmux list-sessions 2>/dev/null || echo "no tmux sessions"
+}
+
+case "${1:-}" in
+  ""|ls|list) cmd_ls ;;
+  rm|remove)  [[ -n ${2:-} ]] || die "usage: wt rm <branch>"; cmd_rm "$2" ;;
+  -h|--help)  sed -n '2,12p' "$0" ;;
+  *)          cmd_open "$1" ;;
+esac

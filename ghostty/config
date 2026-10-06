@@ -1,0 +1,9 @@
+font-family = JetBrainsMono Nerd Font
+font-size = 13
+theme = Builtin Dark
+cursor-style = block
+shell-integration = zsh
+macos-option-as-alt = true
+window-padding-x = 6
+window-padding-y = 4
+copy-on-select = clipboard

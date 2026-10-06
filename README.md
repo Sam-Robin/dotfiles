@@ -8,6 +8,11 @@ Personal shell configuration.
 - `bashrc` — the same setup for bash: identical prompt, aliases and fzf helpers.
   Runs on macOS and Debian
 - `bash_profile` — sources `bashrc`, because login shells don't read it themselves
+- `tmux.conf` — prefix Ctrl-a, true colour, zero escape delay for nvim
+- `ghostty/config` — Ghostty terminal: JetBrainsMono Nerd Font, Option as Alt
+- `bin/wt` — one git worktree + tmux session per branch, with nvim and Claude open.
+  `wt <branch>` creates or attaches, `wt rm <branch>` tears down, `wt ls` lists.
+  Works from bash or zsh; it is a plain script on `~/.local/bin`
 
 ## Install
 
@@ -16,6 +21,10 @@ git clone git@github.com:Sam-Robin/dotfiles.git ~/dotfiles
 ln -s ~/dotfiles/zshrc ~/.zshrc
 ln -s ~/dotfiles/bashrc ~/.bashrc
 ln -s ~/dotfiles/bash_profile ~/.bash_profile
+ln -s ~/dotfiles/tmux.conf ~/.tmux.conf
+mkdir -p ~/.config/ghostty ~/.local/bin
+ln -s ~/dotfiles/ghostty/config ~/.config/ghostty/config
+ln -s ~/dotfiles/bin/wt ~/.local/bin/wt
 ```
 
 Then open a new shell.
@@ -34,6 +43,7 @@ macOS, via Homebrew:
 
 ```sh
 brew install asdf direnv eza zsh-autosuggestions zsh-syntax-highlighting
+brew install tmux && brew install --cask ghostty font-jetbrains-mono-nerd-font
 brew install bash bash-completion@2 blesh   # bash only
 ```
 
